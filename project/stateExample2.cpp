@@ -20,7 +20,14 @@ public:
 };
 
 std::mutex mt;
-int Account :: balance = 27;
+int Account :: balance = 30;
+static int numTasks = 0;
+
+//config array , firstNumber is type, secondNumber is amount
+int config[15][2] = {{1,5},{0,0},{0,0},{0,0},{0,0},{1,5},{0,0},{0,0},{0,0},{1,5},{0,0},{0,0},{0,0},{1,5},{0,0}} ;
+
+//flag for type, 0 is no running work , >0 means workers are reading ,<0 means workers are writing
+volatile static int current_running_type = 0;
 
 struct transaction{
 private:
@@ -28,6 +35,8 @@ private:
 	int no;
 	int amount;
 	int Balance;
+	bool executed;
+
 
 public:
 	transaction(int t,int a,int n){
@@ -39,6 +48,8 @@ public:
 		type = t;
 		amount = a;
 		no = n;
+		executed = false;
+		numTasks++;
 	}
 
 	void Sleep(){
@@ -73,6 +84,14 @@ public:
 	int getAccountNo(){
 		return no;
 	}
+	void setExecute(){
+		executed = true;
+	}
+
+	bool isExecute(){
+		return executed;
+	}
+
 	string getResult(){
 		char str[1000];
 		if(type == 0)
@@ -93,7 +112,9 @@ public:
 struct Worker:ff_node_t<transaction>{
 
 	transaction *svc (transaction *t){
-		
+		//if the transaction has been execured,just pass it
+		if(t->isExecute())
+			return t;		
 		Account acc;
 		if(t->getType() == 0)
 			t->checkBalance(acc);
@@ -107,124 +128,80 @@ struct Worker:ff_node_t<transaction>{
 			t->withdraw(acc);
 			mt.unlock();
 		}
-		std :: cout <<"hello worker!"<<"\n";
 		return t;
 	}
 };
 
 
 
-queue<transaction*> q;
 int currentTransNo = 0;
 
 struct Emitter : ff_minode_t<transaction>{
-	//Emitter(ff_loadbalancer *const lb):lb(lb){}
+	
+	void smallSleep(){
+		int x = 0;
+		for(int n=0;n<10000000;n++)
+			x = sin(n);
+	}
 
-	/*
+
 	transaction *svc(transaction *t){
-		int channelID = lb->get_channel_id();
+		if (t==NULL){
 
-                std :: cout <<"get feedback from channel: "<<channelID<<"\n";
-
-		if(channelID < 0){
-			//std :: cout << "Transaction number " << t->getAccountNo() << " coming from Stage0 \n" ;
-			if(t->getType() != 0 && t->getAccountNo()> currentTransNo +1)
-	{
-			q.push(t);	
-			return GO_ON;
-		}
-			return t;	
+			std :: cout <<"hello start!"<<"\n";
+			for(int n=0;n<15;n++){
+				transaction *t = new transaction(config[n][0],config[n][1],n);			
+				//workers are writing
+				int i=0;
+				while(current_running_type <0 && config[n][0]==0) ;
+					//smallSleep();
+					//std::cout<<"current_type: "<<current_running_type<<"\n";
+				//workers are reading
+				while(current_running_type >0 && (config[n][0]==1||config[n][0]==2)) ;
+					//smallSleep();	
+					//std::cout<<"current_type: "<<current_running_type<<"\n";
+					
+				ff_send_out(t);
+				if(config[n][0]==0)
+					current_running_type++;
+				if(config[n][0]==1||config[n][0]==2)
+					current_running_type--;
+			}			
+			return EOS;
 		}
 		else{
-			std :: cout<< "Emitter receive: [" <<  t->getResult() << "] coming from Worker" << channelID <<"\n";
-			currentTransNo = t->getAccountNo();
-			if(q.empty()){
-				delete t;
-				return GO_ON;
-			}
-			else{
-				transaction *t2 =q.front();
-				
-				if(t2->getAccountNo() < currentTransNo){
-					q.pop();
-					return t2;
-				}
-				else{
-					return GO_ON;
-				}
-			}
-		}
-	}
-	*/
-	
-	transaction *svc(transaction *t){
-		
-		//int channelID = lb->get_channel_id();
-                //std :: cout <<"get feedback from channel: "<<channelID<<"\n";
-		std :: cout <<"hello emitter!"<<"\n";
-		std :: cout <<t<<"\n";
-		ff_send_out(t);		
+			std :: cout <<"Emitter receive feedback transaction "<<t->getAccountNo()<<" from collector!"<<"\n";
+			t->setExecute();
+			//if(t->getType()==0)
+			//	current_running_type--;
+			//if(t->getType()==1||t->getType()==2)
+                        //        current_running_type++;
+			//numTasks--;
+			//if(numTasks == 0)
+			//	return EOS;
+		}		
 		return GO_ON;
 
 	}
-	/*
-	void eosnotify(ssize_t){
-		lb->broadcast_task(EOS);
-	}
-	*/
-
-	//ff_loadbalancer *lb;
-};
-
-
-struct firstStage : ff_node_t<transaction>{
-	
-	transaction *svc(transaction *task){
-		std :: cout <<"hello start!"<<"\n";
-		transaction *t1 = new transaction(1,4,0);
-		transaction *t2 = new transaction(0,0,1);
-		transaction *t3 = new transaction(0,0,2);
-		transaction *t4 = new transaction(1,4,3);
-		transaction *t5 = new transaction(0,0,2);
-		transaction *t6 = new transaction(0,0,2);
-		transaction *t7 = new transaction(1,4,4);
-		transaction *t8 = new transaction(0,0,5);
-		transaction *t9 = new transaction(1,4,6);
-		transaction *t10 = new transaction(0,0,7);
-		transaction *t11 = new transaction(0,0,8);
-		transaction *t12 = new transaction(1,4,9);
-		transaction *t13 = new transaction(0,0,10);
-		transaction *t14 = new transaction(0,0,2);
-		transaction *t15 = new transaction(0,0,2);
-		ff_send_out(t1);
-		ff_send_out(t2);
-		ff_send_out(t3);
-		ff_send_out(t4);
-		ff_send_out(t5);
-		ff_send_out(t6);
-		ff_send_out(t7);
-		ff_send_out(t8);
-		ff_send_out(t9);
-		ff_send_out(t10);
-		ff_send_out(t11);
-		ff_send_out(t12);
-		ff_send_out(t13);
-		ff_send_out(t14);
-		ff_send_out(t15);
-		getchar();
-		return EOS;
-	}
 
 };
+
 
 struct lastStage : ff_monode_t<transaction>{
 	
 	transaction *svc(transaction *t){
 		Account acc;
-		std :: cout <<"Collector received: " << t->getResult() <<"\n";
-		if(t->getAccountNo()>30)
-			ff_send_out_to(t,0);
-		else
+		//std :: cout <<"Collector received transaction : "<<t->getAccountNo()<<" "<< t->getResult() <<"\n";
+
+		if(t->getType()==0)
+                     current_running_type--;
+                if(t->getType()==1||t->getType()==2)
+                     current_running_type++;
+
+
+		//if(!t->isExecute())
+		//	ff_send_out_to(t,0);
+		//else
 			ff_send_out_to(t,1);
 			
 		return GO_ON;
@@ -236,7 +213,9 @@ struct finalStage : ff_node_t<transaction>{
 
         transaction *svc(transaction *t){
                 Account acc;
-                std :: cout <<"final node received: " << t->getResult() <<"\n"; 
+                std :: cout <<"final node received : "<<t->getAccountNo()<<" "<< t->getResult() <<"\n"; 
+
+
                 return GO_ON;
         }
 };
@@ -250,8 +229,6 @@ int main (int argc,char *argv [] ){
 	
 	c0 = clock();
 	t0 = time(NULL);	
-	
-	int n =10;
 
 
 	std :: vector<std::unique_ptr<ff_node>> workers;
@@ -259,19 +236,17 @@ int main (int argc,char *argv [] ){
 		workers.push_back(make_unique<Worker>());
 	
 	ff_Farm<> farm(std::move(workers));
-
-	firstStage stage0;
 	Emitter emitter;
 	lastStage collector;
 	finalStage finalNode;
 
+
 	ff_Pipe<> pipe1(emitter,farm,collector);
 	pipe1.wrap_around();	
-	ff_Pipe<> pipe2(stage0,pipe1);
-	ff_Pipe<> pipe3(pipe2,finalNode);	
+	ff_Pipe<> pipe2(pipe1,finalNode);	
 
 
-	if (pipe3. run_and_wait_end()<0) 
+	if (pipe2. run_and_wait_end()<0) 
 		error("running myFarm");
 
 	c1 = clock();
